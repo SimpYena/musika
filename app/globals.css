@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+/* Dark mode is driven by a data attribute so we can offer an explicit toggle, not just OS pref. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+  /* ---- palette ------------------------------------------------------- */
+  --color-lilac: #7C3AED;
+  --color-lilac-soft: #C9BCFF;
+  --color-mint: #2DD4BF;
+  --color-mint-soft: #B5E8D5;
+  --color-coral: #FF5470;
+  --color-coral-soft: #FFB5C2;
+  --color-sunshine: #FFD93D;
+  --color-sunshine-soft: #FFE08A;
+
+  --color-ink: #241B3D;
+  --color-ink-soft: #6B5E8C;
+  --color-paper: #FFF8F0;
+  --color-paper-raised: #FFFFFF;
+  --color-paper-sunk: #F3ECFF;
+
+  /* ---- shape --------------------------------------------------------- */
+  --radius-card: 24px;
+  --radius-chunk: 20px;
+  --radius-pill: 9999px;
+
+  /* Hard offset shadows, never blurred. This is the single biggest contributor to the feel. */
+  --shadow-chunk: 4px 4px 0 var(--color-ink);
+  --shadow-chunk-sm: 2px 2px 0 var(--color-ink);
+  --shadow-chunk-lg: 6px 6px 0 var(--color-ink);
+
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* next/font exposes CSS variables; @theme inline emits the reference rather than a var-of-var. */
+@theme inline {
+  --font-sans: var(--font-nunito);
+  --font-display: var(--font-fredoka);
+}
+
+[data-theme="dark"] {
+  --color-ink: #F2ECFF;
+  --color-ink-soft: #A99CC9;
+  --color-paper: #171023;
+  --color-paper-raised: #241B36;
+  --color-paper-sunk: #100B1A;
+
+  --color-lilac: #A78BFA;
+  --color-mint: #5EEAD4;
+  --color-coral: #FF7A90;
+  --color-sunshine: #FFE066;
+}
+
+:root {
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans), ui-rounded, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+@layer components {
+  /* The chunky press-down button. On :active it travels into its own shadow. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-bold select-none;
+    @apply rounded-[var(--radius-pill)] border-[3px] border-ink;
+    @apply px-5 py-3 text-base leading-none;
+    min-height: 44px; /* touch target floor */
+    box-shadow: var(--shadow-chunk);
+    transition:
+      transform 120ms var(--ease-bounce),
+      box-shadow 120ms var(--ease-bounce),
+      background-color 120ms ease;
+  }
+
+  .btn:active:not(:disabled) {
+    transform: translate(4px, 4px);
+    box-shadow: 0 0 0 var(--color-ink);
+  }
+
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: var(--shadow-chunk-sm);
+  }
+
+  .btn:focus-visible {
+    outline: 3px solid var(--color-lilac);
+    outline-offset: 3px;
+  }
+
+  .btn-icon {
+    @apply px-0 py-0;
+    width: 52px;
+    height: 52px;
+  }
+
+  .btn-lilac { background: var(--color-lilac); color: #fff; }
+  .btn-mint { background: var(--color-mint); color: var(--color-ink); }
+  .btn-coral { background: var(--color-coral); color: var(--color-ink); }
+  .btn-sun { background: var(--color-sunshine); color: var(--color-ink); }
+  .btn-paper { background: var(--color-paper-raised); color: var(--color-ink); }
+
+  [data-theme="dark"] .btn-lilac { color: var(--color-paper); }
+
+  .card {
+    @apply rounded-[var(--radius-card)] border-[3px] border-ink;
+    background: var(--color-paper-raised);
+    box-shadow: var(--shadow-chunk);
+  }
+
+  .card-flat {
+    @apply rounded-[var(--radius-chunk)] border-[3px] border-ink;
+    background: var(--color-paper-raised);
+  }
+
+  .input-chunk {
+    @apply w-full rounded-[var(--radius-pill)] border-[3px] border-ink px-5 py-3 font-semibold;
+    background: var(--color-paper-raised);
+    color: var(--color-ink);
+    box-shadow: var(--shadow-chunk-sm);
+    min-height: 48px;
+  }
+
+  .input-chunk::placeholder {
+    color: var(--color-ink-soft);
+    font-weight: 600;
+  }
+
+  .input-chunk:focus {
+    outline: none;
+    box-shadow: var(--shadow-chunk);
+    border-color: var(--color-lilac);
+  }
+}
+
+/* The sync indicator's heartbeat. */
+@keyframes musika-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.55; }
+}
+
+.pulse-dot {
+  animation: musika-pulse 1.6s var(--ease-bounce) infinite;
+}
+
+/* Album art breathing while a track plays. */
+@keyframes musika-bob {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-6px) rotate(1deg); }
+}
+
+.bobbing {
+  animation: musika-bob 2.4s ease-in-out infinite;
+}
+
+@keyframes musika-spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: musika-spin 1s linear infinite;
+}
+
+/* Hide scrollbars on the queue without losing scroll. */
+.scroll-soft {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-soft) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
