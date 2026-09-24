@@ -95,6 +95,13 @@ exactly what the app does — then reports which step failed.
 That is the whole deploy. The free tier is more than enough: Vercel serves static files and one
 tiny JSON route, and the WebSocket goes browser→Supabase directly, never through Vercel.
 
+**Put the clock near your friends.** That one JSON route, `/api/time`, is the room's reference
+clock, and clock sync is only as accurate as its round trip is short and symmetric. Vercel runs
+functions in Washington, D.C. (`iad1`) unless told otherwise — about 250 ms away from Southeast
+Asia, enough to put two listeners audibly out of step. `vercel.json` pins functions to Singapore
+(`sin1`); change it to the [region](https://vercel.com/docs/regions) closest to you and your
+friends.
+
 ### Keeping a free Supabase project awake (recommended)
 
 Free Supabase projects **pause after about a week without database activity**, and Realtime

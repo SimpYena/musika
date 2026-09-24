@@ -6,7 +6,15 @@
  * Deliberately dependency-free: no test runner, no DOM. Everything here is a pure function.
  */
 
-import { acceptsEvent, electAnchor, seatOrder, type Member } from '../lib/types.ts'
+import {
+  DRIFT_IGNORE_MS,
+  SEEK_LEAD_MAX_MS,
+  acceptsEvent,
+  electAnchor,
+  nextSeekLead,
+  seatOrder,
+  type Member,
+} from '../lib/types.ts'
 import {
   isValidRoomCode,
   normalizeRoomCode,
@@ -74,6 +82,31 @@ check('identical event is not reapplied', acceptsEvent({ seq: 4, actorId: 'm' },
   }
   check('replayed old messages change nothing', applied, { seq: 2, actorId: 'm' })
 }
+
+/* ------------------------------------------------------------------ */
+group('seek-lead learning — corrections must not land behind')
+
+// A YouTube seek stalls audio while it flushes and decodes, so seeking to where the song is *now*
+// lands that stall behind. Simulate a follower whose seeks each cost 300 ms.
+{
+  const SEEK_COST_MS = 300
+  let lead = 0
+  const residuals: number[] = []
+  for (let i = 0; i < 4; i++) {
+    const residual = lead - SEEK_COST_MS // negative = behind
+    residuals.push(residual)
+    lead = nextSeekLead(lead, residual)
+  }
+  check('first uncompensated seek lands behind', residuals[0] < -DRIFT_IGNORE_MS, true)
+  check('second seek is already inside the dead zone', Math.abs(residuals[1]) < DRIFT_IGNORE_MS, true)
+  check('lead settles near the real seek cost', Math.abs(lead - SEEK_COST_MS) < 30, true)
+}
+
+check('overshoot shrinks the lead', nextSeekLead(300, 100) < 300, true)
+check('lead never goes negative', nextSeekLead(20, 500), 0)
+check('lead is capped', nextSeekLead(SEEK_LEAD_MAX_MS, -900), SEEK_LEAD_MAX_MS)
+// A rebuffer after a seek is not seek latency — learning from it would fling the next seek ahead.
+check('rebuffer-sized residual is ignored', nextSeekLead(200, -3000), 200)
 
 /* ------------------------------------------------------------------ */
 group('seats and anchor election')

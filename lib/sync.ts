@@ -16,6 +16,7 @@ import {
   acceptsEvent,
   electAnchor,
   emptyRoomState,
+  nextSeekLead,
   seatOrder,
   type CtrlKind,
   type Member,
@@ -75,6 +76,10 @@ export class SyncEngine {
   private overThresholdSamples = 0
   private lastMicroSeekAt = 0
   private duckTimer: ReturnType<typeof setTimeout> | null = null
+  /** Learned post-seek stall for this player. Corrective seeks aim this far ahead. */
+  private seekLeadMs = 0
+  /** A corrective seek just went out; the next sample tells us where it really landed. */
+  private awaitingSeekResidual = false
 
   // --- stall / ad detection ---
   private stalled = false
@@ -386,6 +391,8 @@ export class SyncEngine {
       type === 'youtube' ? new YouTubePlayer(this.container) : new SoundCloudPlayer(this.container)
     this.player = player
     this.playerType = type
+    // Seek stall is a property of the player, so a new adapter relearns it from scratch.
+    this.seekLeadMs = 0
     this.unsubscribePlayer = player.subscribe((e) => this.onPlayerEvent(e))
     return player
   }
@@ -545,6 +552,8 @@ export class SyncEngine {
 
   private resetDriftWindow() {
     this.overThresholdSamples = 0
+    // Whatever moved the playhead wasn't our correction, so its residual would teach us nothing.
+    this.awaitingSeekResidual = false
     this.lastSamplePos = this.player?.getPositionMs() ?? 0
     this.lastSampleAt = Date.now()
   }
@@ -595,12 +604,16 @@ export class SyncEngine {
           }
           this.applyRemoteState(held.state, held.kind)
         }
-        this.player.seek(this.expectedPosition(), true)
+        this.correctiveSeek(this.expectedPosition(), true)
         this.overThresholdSamples = 0
+        // `position` predates that seek; judging drift from it would just seek a second time.
+        this.cb.onHealth('correcting', 0)
+        return
       }
     }
 
     if (this.stalled) {
+      this.awaitingSeekResidual = false
       this.cb.onHealth('holding', 0)
       return
     }
@@ -609,6 +622,11 @@ export class SyncEngine {
     const expected = this.expectedPosition()
     const drift = position - expected
     const magnitude = Math.abs(drift)
+
+    if (this.awaitingSeekResidual) {
+      this.awaitingSeekResidual = false
+      this.seekLeadMs = nextSeekLead(this.seekLeadMs, drift)
+    }
 
     // The anchor defines the timeline, so it re-anchors from its own player — but only while it
     // is in good shape. A freshly-unstalled anchor corrects itself first rather than yanking
@@ -637,7 +655,7 @@ export class SyncEngine {
     }
 
     if (magnitude > DRIFT_HARD_SEEK_MS) {
-      this.player.seek(expected, true)
+      this.correctiveSeek(expected, true)
       this.overThresholdSamples = 0
       this.cb.onHealth('correcting', drift)
       return
@@ -666,11 +684,22 @@ export class SyncEngine {
 
     player.setVolume(0)
     // allowSeekAhead:false keeps this inside the buffered range — no refetch, no rebuffer.
-    player.seek(target, false)
+    this.correctiveSeek(target, false)
     if (this.duckTimer) clearTimeout(this.duckTimer)
     this.duckTimer = setTimeout(() => {
       player.setVolume(volume)
     }, MICRO_SEEK_DUCK_MS)
+  }
+
+  /**
+   * Every drift correction goes through here. Seeking to where the song is *now* lands the
+   * player's seek stall behind — for a typical 150–400 ms stall, straight back in the micro-seek
+   * tier, which is how a follower ends up "nudging 300ms" every 5 s. Aim ahead by the learned
+   * stall and measure the landing on the next sample (see nextSeekLead).
+   */
+  private correctiveSeek(expected: number, precise: boolean) {
+    this.player?.seek(expected + this.seekLeadMs, precise)
+    this.awaitingSeekResidual = true
   }
 
   /* ---------------------------------------------------------------- *

@@ -117,6 +117,12 @@ export const MICRO_SEEK_DUCK_MS = 120
 export const START_BARRIER_LEAD_MS = 1500
 /** Give up waiting for a slow client and start without it. */
 export const READY_TIMEOUT_MS = 5000
+/** Ceiling on how far ahead of "now" a correction seek may aim. */
+export const SEEK_LEAD_MAX_MS = 1000
+/** Fraction of each post-seek residual folded into the lead. Below 1 so one noisy sample can't whipsaw it. */
+const SEEK_LEAD_GAIN = 0.7
+/** Residuals this large are a rebuffer, not seek latency — never learn from them. */
+const SEEK_LEAD_OUTLIER_MS = 1000
 
 /* ------------------------------------------------------------------ *
  * Pure convergence rules.
@@ -140,6 +146,21 @@ export interface Stamp {
 export function acceptsEvent(incoming: Stamp, applied: Stamp): boolean {
   if (incoming.seq > applied.seq) return true
   return incoming.seq === applied.seq && incoming.actorId > applied.actorId
+}
+
+/**
+ * Learn how long this client's player takes to resume after a seek.
+ *
+ * A seek stalls audio while the player flushes and decodes, but the shared timeline keeps moving,
+ * so a seek aimed at "where the song is now" lands exactly that stall behind — and, for a typical
+ * 150–400 ms stall, back in the micro-seek tier, forever. Aim correction seeks `lead` ms ahead
+ * instead, and after each one fold the measured residual drift (player − expected, negative when
+ * behind) back into the lead.
+ */
+export function nextSeekLead(lead: number, residualDriftMs: number): number {
+  if (Math.abs(residualDriftMs) >= SEEK_LEAD_OUTLIER_MS) return lead
+  const next = lead - residualDriftMs * SEEK_LEAD_GAIN
+  return Math.min(SEEK_LEAD_MAX_MS, Math.max(0, next))
 }
 
 /**
