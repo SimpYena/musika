@@ -45,10 +45,24 @@ export interface SyncCallbacks {
 const RECONCILE_INTERVAL_MS = 1000
 const STALL_WINDOW_MS = 2000
 const STALL_ADVANCE_MS = 500
+/** How long past the ready timeout the anchor waits before firing a barrier it didn't start. */
+const BARRIER_TAKEOVER_GRACE_MS = 2000
 
-/** TEMPORARY diagnostics. Filter the console by "[sync]". Remove once the lag is understood. */
+/**
+ * Diagnostics, off by default. Enable in the browser console with
+ * `localStorage.setItem('musika:debug', '1')` and reload, then filter the console by "[sync".
+ */
 const t0 = typeof performance !== 'undefined' ? performance.now() : 0
+function debugEnabled(): boolean {
+  try {
+    return localStorage.getItem('musika:debug') === '1'
+  } catch {
+    return false
+  }
+}
+const DEBUG = typeof window !== 'undefined' && debugEnabled()
 function dbg(...args: unknown[]): void {
+  if (!DEBUG) return
   const t = ((performance.now() - t0) / 1000).toFixed(2).padStart(7)
   console.log(`[sync ${t}s]`, ...args)
 }
@@ -226,7 +240,9 @@ export class SyncEngine {
 
     switch (msg.type) {
       case 'hello':
-        if (this.isAnchor() && this.hydrated) {
+        // Normally the anchor answers. But a joiner can itself be the lowest clientId, in which
+        // case it is "the anchor" in everyone's view and nobody else would ever reply to it.
+        if (this.hydrated && (this.isAnchor() || msg.actorId === this.anchorId())) {
           this.send({ type: 'state', state: this.room })
         }
         break
@@ -468,15 +484,32 @@ export class SyncEngine {
     this.send({ type: 'ready', trackId: track.id })
 
     if (this.barrierTimer) clearTimeout(this.barrierTimer)
-    this.barrierTimer = setTimeout(() => this.maybeFireStart(true), READY_TIMEOUT_MS)
+    // Non-initiators check a little later, so the anchor only steps in if the initiator never did.
+    const initiatorDelay =
+      this.barrierInitiator === this.me.clientId
+        ? READY_TIMEOUT_MS
+        : READY_TIMEOUT_MS + BARRIER_TAKEOVER_GRACE_MS + 250
+    this.barrierTimer = setTimeout(() => this.maybeFireStart(true), initiatorDelay)
     this.maybeFireStart()
   }
 
-  /** Only the client that initiated the track change fires the barrier. */
+  /**
+   * The client that initiated the track change fires the barrier. If it vanished (closed the tab,
+   * lost network) or never got round to it, the anchor takes over — otherwise every other client
+   * waits forever with isPlaying=true, and the room's timeline silently ages while nothing plays.
+   */
+  private canFireBarrier(): boolean {
+    if (this.barrierInitiator === this.me.clientId) return true
+    if (!this.isAnchor()) return false
+    const initiatorGone = !this.members.some((m) => m.clientId === this.barrierInitiator)
+    const overdue = correctedNow() - this.barrierStartedAt > READY_TIMEOUT_MS + BARRIER_TAKEOVER_GRACE_MS
+    return initiatorGone || overdue
+  }
+
   private maybeFireStart(force = false) {
     if (this.startFired) return
     if (!this.barrierTrackId) return
-    if (this.barrierInitiator !== this.me.clientId) return
+    if (!this.canFireBarrier()) return
     if (this.phase !== 'waiting') return
 
     const everyoneReady = this.members.every((m) => this.readyClients.has(m.clientId))
@@ -728,8 +761,10 @@ export class SyncEngine {
     const volume = this.cb.getVolume()
 
     player.setVolume(0)
-    // allowSeekAhead:false keeps this inside the buffered range — no refetch, no rebuffer.
-    this.correctiveSeek(target, false)
+    // Must commit (allowSeekAhead:true). `false` is YouTube's "user is still dragging the
+    // scrubber" mode; with nothing to finalise it, the playhead froze for ~1 s after every
+    // micro-seek and the next sample escalated to a hard seek (observed 3/3 in testing).
+    this.correctiveSeek(target, true)
     if (this.duckTimer) clearTimeout(this.duckTimer)
     this.duckTimer = setTimeout(() => {
       player.setVolume(volume)

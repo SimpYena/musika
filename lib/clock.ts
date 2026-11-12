@@ -86,8 +86,9 @@ export async function syncClock(): Promise<boolean> {
 
   const previousOffset = clockOffset
   clockOffset = median(keep.map((s) => s.offset))
-  // TEMPORARY diagnostics: an offset that moves mid-song shifts every client's expected position.
-  console.log(
+  // Diagnostics (see `musika:debug` in lib/sync.ts): an offset that moves mid-song shifts every
+  // client's expected position.
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('musika:debug') === '1') console.log(
     '[sync clock]',
     `offset ${previousOffset.toFixed(0)} -> ${clockOffset.toFixed(0)}ms`,
     `(change ${(clockOffset - previousOffset).toFixed(0)}ms)`,
