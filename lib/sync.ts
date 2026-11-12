@@ -422,6 +422,20 @@ export class SyncEngine {
       return
     }
 
+    dbg(
+      'adopt track',
+      `seekLive=${seekLive}`,
+      `title=${track.title}`,
+      `trackDuration=${track.durationMs ?? 'unknown'}`,
+      `room.positionMs=${this.room.positionMs.toFixed(0)}`,
+      `room.age=${(correctedNow() - this.room.emittedAtServerMs).toFixed(0)}ms`,
+      `isPlaying=${this.room.isPlaying}`,
+      `actor=${this.room.actorId}`,
+      `members=${this.members.map((m) => `${m.username}(${m.clientId.slice(0, 4)})`).join(',')}`,
+      `anchor=${this.anchorId().slice(0, 4)}`,
+      `me=${this.me.clientId.slice(0, 4)}`,
+    )
+
     this.phase = 'cueing'
     this.barrierTrackId = track.id
     this.barrierInitiator = this.room.actorId
@@ -735,8 +749,13 @@ export class SyncEngine {
       `from=${(this.player?.getPositionMs() ?? 0).toFixed(0)}`,
       `lead=${this.seekLeadMs.toFixed(0)}`,
     )
-    this.player?.seek(expected + this.seekLeadMs, precise)
+    const target = expected + this.seekLeadMs
+    this.player?.seek(target, precise)
     this.awaitingSeekResidual = true
+    // Restart the stall window at the seek target. Otherwise the playhead jump (especially a
+    // backward one) is read as "the video didn't advance" and flagged as an ad.
+    this.lastSamplePos = target
+    this.lastSampleAt = Date.now()
   }
 
   /* ---------------------------------------------------------------- *
