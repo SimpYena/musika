@@ -46,6 +46,13 @@ const RECONCILE_INTERVAL_MS = 1000
 const STALL_WINDOW_MS = 2000
 const STALL_ADVANCE_MS = 500
 
+/** TEMPORARY diagnostics. Filter the console by "[sync]". Remove once the lag is understood. */
+const t0 = typeof performance !== 'undefined' ? performance.now() : 0
+function dbg(...args: unknown[]): void {
+  const t = ((performance.now() - t0) / 1000).toFixed(2).padStart(7)
+  console.log(`[sync ${t}s]`, ...args)
+}
+
 export class SyncEngine {
   private channel: RoomChannel
   private player: PlayerAdapter | null = null
@@ -362,6 +369,12 @@ export class SyncEngine {
     if (msg.trackId !== this.room.trackId) return
     if (msg.seq < this.lastSeq) return
 
+    dbg(
+      'tick rx',
+      `latency=${(correctedNow() - msg.at).toFixed(0)}ms`,
+      `timelineJump=${(msg.positionMs + (correctedNow() - msg.at) - this.expectedPosition()).toFixed(0)}ms`,
+    )
+
     this.room = {
       ...this.room,
       positionMs: msg.positionMs,
@@ -510,6 +523,7 @@ export class SyncEngine {
   private onPlayerEvent(e: PlayerEvent) {
     // Nothing here ever broadcasts a ctrl except a genuine track-end advance. A player callback
     // that echoes state back onto the wire is the loop that eats the app.
+    dbg('player event', e.type)
     switch (e.type) {
       case 'ended':
         if (this.isAnchor()) this.advanceAfterEnd()
@@ -584,10 +598,27 @@ export class SyncEngine {
     const wallElapsed = Date.now() - this.lastSampleAt
     const advanced = position - this.lastSamplePos
 
+    dbg(
+      'sample',
+      this.isAnchor() ? 'ANCHOR' : 'follower',
+      `pos=${position.toFixed(0)}`,
+      `expected=${this.expectedPosition().toFixed(0)}`,
+      `drift=${(position - this.expectedPosition()).toFixed(0)}`,
+      `stalled=${this.stalled}`,
+      `advanced=${advanced.toFixed(0)}/${wallElapsed}ms`,
+      `lead=${this.seekLeadMs.toFixed(0)}`,
+    )
+
     /* --- stall / ad hold --------------------------------------------------- */
     if (wallElapsed >= STALL_WINDOW_MS) {
       const wasStalled = this.stalled
       this.stalled = advanced < STALL_ADVANCE_MS
+      if (this.stalled !== wasStalled) {
+        dbg(
+          this.stalled ? 'STALL DETECTED' : 'STALL CLEARED',
+          `advanced=${advanced.toFixed(0)} in ${wallElapsed}ms`,
+        )
+      }
       this.lastSamplePos = position
       this.lastSampleAt = Date.now()
 
@@ -698,6 +729,12 @@ export class SyncEngine {
    * stall and measure the landing on the next sample (see nextSeekLead).
    */
   private correctiveSeek(expected: number, precise: boolean) {
+    dbg(
+      precise ? 'HARD SEEK' : 'MICRO SEEK',
+      `to=${(expected + this.seekLeadMs).toFixed(0)}`,
+      `from=${(this.player?.getPositionMs() ?? 0).toFixed(0)}`,
+      `lead=${this.seekLeadMs.toFixed(0)}`,
+    )
     this.player?.seek(expected + this.seekLeadMs, precise)
     this.awaitingSeekResidual = true
   }

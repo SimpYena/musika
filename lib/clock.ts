@@ -84,7 +84,15 @@ export async function syncClock(): Promise<boolean> {
   const byRtt = [...samples].sort((a, b) => a.rtt - b.rtt)
   const keep = byRtt.slice(0, Math.max(1, Math.ceil(byRtt.length / 2)))
 
+  const previousOffset = clockOffset
   clockOffset = median(keep.map((s) => s.offset))
+  // TEMPORARY diagnostics: an offset that moves mid-song shifts every client's expected position.
+  console.log(
+    '[sync clock]',
+    `offset ${previousOffset.toFixed(0)} -> ${clockOffset.toFixed(0)}ms`,
+    `(change ${(clockOffset - previousOffset).toFixed(0)}ms)`,
+    `rtts=${samples.map((s) => s.rtt.toFixed(0)).join(',')}`,
+  )
   synced = true
   lastError = null
   return true
